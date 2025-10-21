@@ -32,7 +32,6 @@ export function PlotScatterBrush() {
         colorScheme: "turbo",
       }}
       enableBrush={true}
-      showLegends={true}
       onSelectionChange={handleSelectionChange}
     />
   );
