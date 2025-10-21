@@ -13,7 +13,7 @@ export function createSizeLegend(
   const sizeLegendSvg = d3
     .create("svg")
     .attr("width", 180)
-    .attr("height", 40)
+    .attr("height", 50)
     .style("font", "10px system-ui, sans-serif")
     .style("display", "block");
 
@@ -35,7 +35,7 @@ export function createSizeLegend(
     sizeLegendSvg
       .append("circle")
       .attr("cx", xOffset + r)
-      .attr("cy", 28)
+      .attr("cy", 25)
       .attr("r", r)
       .attr("fill", "#888")
       .attr("stroke", "#555")
@@ -45,7 +45,7 @@ export function createSizeLegend(
     sizeLegendSvg
       .append("text")
       .attr("x", xOffset + r)
-      .attr("y", 15)
+      .attr("y", 42)
       .attr("text-anchor", "middle")
       .style("font-size", "9px")
       .text(val.toFixed(0));

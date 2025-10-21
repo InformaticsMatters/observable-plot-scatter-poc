@@ -1,5 +1,5 @@
 import * as d3 from "d3";
-import type { Point } from "./types";
+import type { Point, BrushSelection } from "./types";
 
 /**
  * Generates random scatter plot data
@@ -19,10 +19,27 @@ export function generateRandomData(
     data.push({
       x: random(50, 15)(),
       y: random(50, 15)(),
-      size: random(10, 3)(),
-      color: random(50, 20)(),
+      size: random(30, 10)(),
+      color: random(10, 50)(),
     });
   }
 
   return data;
+}
+
+/**
+ * Checks if a point (in SVG pixel coordinates) is within a brush selection
+ *
+ * @param cx - X coordinate in SVG pixels
+ * @param cy - Y coordinate in SVG pixels
+ * @param selection - Brush selection bounds
+ * @returns true if the point is inside the selection
+ */
+export function isPointInSelection(
+  cx: number,
+  cy: number,
+  selection: BrushSelection
+): boolean {
+  const { x0, y0, x1, y1 } = selection;
+  return cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1;
 }

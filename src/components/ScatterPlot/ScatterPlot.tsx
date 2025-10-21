@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
 import type { ScatterPlotProps } from "./types";
-import { createScatterPlot, findMainSvg, getSizeExtentAndTicks } from "./plot";
-import { createLegendWrapper, createSizeLegend } from "./legends";
-import { createBrush, clearBrushSelection } from "./brush";
+import {
+  createScatterPlot,
+  findMainSvg,
+  extractScalesFromPlotElement,
+  getSizeExtentAndTicks,
+} from "./plot";
+import { createSizeLegend } from "./legends";
+import { createBrush, setBrushSelection } from "./brush";
 
 /**
  * ScatterPlot Component
@@ -14,17 +19,31 @@ import { createBrush, clearBrushSelection } from "./brush";
  * @param config - Configuration options for the plot appearance
  * @param onSelectionChange - Callback when selection changes
  * @param enableBrush - Whether to enable brush selection (default: true)
- * @param showLegends - Whether to show legends (default: true)
+ * @param selection - Controlled selection in data coordinates (optional)
  */
 export function ScatterPlot({
   data,
   config,
   onSelectionChange,
   enableBrush = true,
-  showLegends = true,
+  selection,
 }: ScatterPlotProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [selectedCount, setSelectedCount] = useState(0);
+
+  // Track whether we're currently applying a programmatic selection
+  // This prevents feedback loop: programmatic change → visual update → don't notify parent
+  const isApplyingProgrammaticRef = useRef(false);
+
+  // Store brush refs to allow programmatic control
+  const brushRef = useRef<{
+    brush: d3.BrushBehavior<unknown>;
+    brushLayer: d3.Selection<SVGGElement, unknown, null, undefined>;
+    circles: d3.Selection<SVGCircleElement, unknown, any, any>;
+    xScale: d3.ScaleLinear<number, number>;
+    yScale: d3.ScaleLinear<number, number>;
+    circlePositions: Array<{ cx: number; cy: number }>;
+  } | null>(null);
 
   // Memoize data to prevent unnecessary re-renders
   const memoizedData = useMemo(() => data, [data]);
@@ -32,52 +51,48 @@ export function ScatterPlot({
   useEffect(() => {
     if (!containerRef.current) return;
 
+    // Clear previous content
+    containerRef.current.innerHTML = "";
+
     // Create the plot
     const plotEl = createScatterPlot(memoizedData, config);
+    containerRef.current.appendChild(plotEl);
 
-    // Mount the plot
-    containerRef.current.innerHTML = "";
-    containerRef.current.append(plotEl);
+    // Setup legends - Observable Plot creates a figure with SVG children
+    // Structure: figure > [legend svg(s), main chart svg]
+    // We need to wrap legends in a container for proper layout
+    const { sizeExtent, sizeLegendData } = getSizeExtentAndTicks(memoizedData);
+    const sizeLegendSvg = createSizeLegend(
+      sizeLegendData,
+      sizeExtent,
+      config?.sizeRange || [2, 12],
+      config?.sizeLabel
+    );
 
-    // Setup legends if enabled
-    if (showLegends) {
-      const allLegends = Array.from(
-        plotEl.querySelectorAll(
-          ".plot-legend, .plot-ramp, [aria-label*='legend']"
-        )
-      );
+    // Find Observable Plot's color legend and main chart
+    const allSvgs = Array.from(plotEl.querySelectorAll("svg"));
+    const mainChartSvg = findMainSvg(plotEl);
+    const colorLegendSvg = allSvgs.find((svg) => svg !== mainChartSvg);
 
-      const legendWrapper = createLegendWrapper();
+    if (colorLegendSvg) {
+      // Create a wrapper div for both legends
+      const legendWrapper = document.createElement("div");
+      legendWrapper.style.display = "flex";
+      legendWrapper.style.gap = "30px";
+      legendWrapper.style.alignItems = "flex-start";
+      legendWrapper.style.marginBottom = "10px";
 
-      // Move existing legends to wrapper
-      allLegends.forEach((legend) => {
-        const wrapper = document.createElement("div");
-        wrapper.append(legend);
-        legendWrapper.append(wrapper);
-      });
-
-      // Create size legend
-      const { sizeExtent, sizeLegendData } =
-        getSizeExtentAndTicks(memoizedData);
-      const sizeLegendSvg = createSizeLegend(
-        sizeLegendData,
-        sizeExtent,
-        config?.sizeRange || [2, 12],
-        config?.sizeLabel
-      );
-
-      const sizeLegendWrapper = document.createElement("div");
-      sizeLegendWrapper.append(sizeLegendSvg);
-      legendWrapper.append(sizeLegendWrapper);
-
-      containerRef.current.insertBefore(
-        legendWrapper,
-        containerRef.current.firstChild
-      );
+      // Insert wrapper before the main chart, then move legends into it
+      plotEl.insertBefore(legendWrapper, mainChartSvg);
+      legendWrapper.appendChild(colorLegendSvg);
+      legendWrapper.appendChild(sizeLegendSvg);
+    } else {
+      // No color legend, just add size legend before chart
+      plotEl.insertBefore(sizeLegendSvg, mainChartSvg);
     }
 
-    // Setup brush if enabled
-    if (enableBrush) {
+    // Setup brush if enabled and we have data
+    if (enableBrush && memoizedData.length > 0) {
       const svgNode = findMainSvg(plotEl);
       const svg = d3.select(svgNode);
 
@@ -94,7 +109,7 @@ export function ScatterPlot({
         .select(marksGroup)
         .selectAll<SVGCircleElement, unknown>("circle");
 
-      // Calculate the actual extent from the circle positions
+      // Calculate the brush extent from circle positions
       let minX = Infinity,
         maxX = -Infinity;
       let minY = Infinity,
@@ -109,51 +124,101 @@ export function ScatterPlot({
         maxY = Math.max(maxY, cy);
       });
 
-      // Add some padding to allow selection beyond the outermost points
+      // Add padding to allow selection beyond the outermost points
       const padding = 20;
       const extent: [[number, number], [number, number]] = [
         [minX - padding, minY - padding],
         [maxX + padding, maxY + padding],
       ];
 
-      const { brush, brushLayer } = createBrush(
+      // Extract scales from Observable Plot
+      const scales = extractScalesFromPlotElement(plotEl, circles);
+
+      if (!scales) {
+        console.error("Failed to extract scales - brush not initialized");
+        return;
+      }
+
+      const { xScale, yScale } = scales;
+
+      const { brush, brushLayer, circlePositions } = createBrush(
         marksGroup,
         circles,
         memoizedData,
         {
           extent,
+          xScale,
+          yScale,
           onBrush: (selection, selectedPoints) => {
             setSelectedCount(selectedPoints.length);
-            onSelectionChange?.(selectedPoints, selection);
+
+            // Only notify parent if this is a user-initiated change
+            // (not a programmatic selection being applied)
+            if (!isApplyingProgrammaticRef.current) {
+              onSelectionChange?.(selectedPoints, selection);
+            }
           },
         }
       );
 
-      // Add keyboard listener for Escape key
-      const handleKeyDown = (event: KeyboardEvent) => {
-        if (event.key === "Escape") {
-          clearBrushSelection(brushLayer, brush, circles);
+      brushRef.current = {
+        brush,
+        brushLayer,
+        xScale,
+        yScale,
+        circles,
+        circlePositions,
+      };
+
+      // Setup Escape key to clear selection
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape" && brushRef.current) {
+          const { brush, brushLayer } = brushRef.current;
+          brush.move(brushLayer, null);
           setSelectedCount(0);
           onSelectionChange?.([], null);
         }
       };
 
-      window.addEventListener("keydown", handleKeyDown);
+      document.addEventListener("keydown", handleKeyDown);
 
       return () => {
-        window.removeEventListener("keydown", handleKeyDown);
-        d3.select(plotEl).remove();
+        document.removeEventListener("keydown", handleKeyDown);
       };
     }
+  }, [memoizedData, config, enableBrush, onSelectionChange]);
 
-    return () => {
-      d3.select(plotEl).remove();
-    };
-  }, [memoizedData, config, enableBrush, showLegends, onSelectionChange]);
+  // Effect to handle controlled selection changes from parent
+  useEffect(() => {
+    if (!enableBrush || !brushRef.current) return;
+
+    const { brush, brushLayer, xScale, yScale, circles, circlePositions } =
+      brushRef.current;
+
+    // Set flag to indicate we're applying a programmatic selection
+    // This prevents the onBrush callback from notifying parent (avoiding feedback loop)
+    isApplyingProgrammaticRef.current = true;
+
+    try {
+      // Apply the selection (this will trigger brush events but won't call parent callback)
+      setBrushSelection(
+        brushLayer,
+        brush,
+        selection ?? null,
+        xScale,
+        yScale,
+        circles,
+        circlePositions
+      );
+    } finally {
+      // Reset flag after applying
+      isApplyingProgrammaticRef.current = false;
+    }
+  }, [selection, enableBrush]);
 
   return (
     <div>
-      <figure ref={containerRef} className="plot" />
+      <div ref={containerRef} className="plot-container" />
       {enableBrush && (
         <div style={{ marginTop: 8, fontSize: 12, color: "#555" }}>
           Selected: {selectedCount}

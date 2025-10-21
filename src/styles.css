@@ -18,3 +18,16 @@ body {
 figure.plot {
   width: 100%;
 }
+
+/* Circle selection states for performance */
+circle.brush-selected {
+  opacity: 0.7;
+}
+
+circle.brush-unselected {
+  opacity: 0.15;
+}
+
+circle.brush-normal {
+  opacity: 0.7;
+}

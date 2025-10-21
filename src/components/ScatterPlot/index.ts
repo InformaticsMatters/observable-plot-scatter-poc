@@ -5,17 +5,10 @@
  */
 
 export { ScatterPlot } from "./ScatterPlot";
+export { generateRandomData } from "./utils";
 export type {
   Point,
   ScatterPlotConfig,
   ScatterPlotProps,
   BrushSelection,
 } from "./types";
-export {
-  createScatterPlot,
-  findMainSvg,
-  getSizeExtentAndTicks,
-  getPlotAreaDimensions,
-} from "./plot";
-export { createLegendWrapper, createSizeLegend } from "./legends";
-export { createBrush, clearBrushSelection } from "./brush";

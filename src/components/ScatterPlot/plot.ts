@@ -106,3 +106,77 @@ export function getPlotAreaDimensions(config?: ScatterPlotConfig): {
     height: plotHeight,
   };
 }
+
+/**
+ * Extract scales directly from Observable Plot's native scale API
+ * This uses Plot's actual internal scales for accurate coordinate transformations
+ *
+ * @param plotEl - The plot HTML element (has plot.scale() method attached)
+ * @param circles - D3 selection of circle elements to analyze for pixel extent
+ * @returns D3 linear scales for x and y axes, or null if extraction fails
+ */
+export function extractScalesFromPlotElement(
+  plotEl: HTMLElement,
+  circles: d3.Selection<SVGCircleElement, unknown, any, any>
+): {
+  xScale: d3.ScaleLinear<number, number>;
+  yScale: d3.ScaleLinear<number, number>;
+} | null {
+  const plot = plotEl as any;
+
+  // Check if Observable Plot's scale API is available
+  if (!plot.scale) {
+    console.warn("Observable Plot scale API not available");
+    return null;
+  }
+
+  // Check if we have circles to work with
+  if (circles.size() === 0) {
+    console.warn("No circles found - cannot extract scales");
+    return null;
+  }
+
+  try {
+    // Get Observable Plot's native scales
+    const xScalePlot = plot.scale("x");
+    const yScalePlot = plot.scale("y");
+
+    if (!xScalePlot || !yScalePlot) {
+      console.warn("Could not get x or y scale from Observable Plot");
+      return null;
+    }
+
+    // Find the pixel extent from rendered circles
+    let minCx = Infinity,
+      maxCx = -Infinity;
+    let minCy = Infinity,
+      maxCy = -Infinity;
+
+    circles.each(function () {
+      const cx = +this.getAttribute("cx")!;
+      const cy = +this.getAttribute("cy")!;
+      minCx = Math.min(minCx, cx);
+      maxCx = Math.max(maxCx, cx);
+      minCy = Math.min(minCy, cy);
+      maxCy = Math.max(maxCy, cy);
+    });
+
+    // Use Plot's invert to find data values at these pixel positions
+    const xDomain = [xScalePlot.invert(minCx), xScalePlot.invert(maxCx)];
+    const yDomain = [yScalePlot.invert(maxCy), yScalePlot.invert(minCy)]; // Inverted for SVG coords
+
+    // Create D3 scales that match Observable Plot's transformation
+    const xScale = d3.scaleLinear().domain(xDomain).range([minCx, maxCx]);
+
+    const yScale = d3.scaleLinear().domain(yDomain).range([maxCy, minCy]); // Inverted range for SVG
+
+    console.log("✓ Using Observable Plot native scales");
+    console.log("  X domain:", xDomain, "→ range:", [minCx, maxCx]);
+    console.log("  Y domain:", yDomain, "→ range:", [maxCy, minCy]);
+
+    return { xScale, yScale };
+  } catch (error) {
+    console.error("Error extracting scales from Observable Plot:", error);
+    return null;
+  }
+}
