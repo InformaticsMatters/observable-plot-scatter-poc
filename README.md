@@ -27,6 +27,36 @@ pnpm dev
 
 Open your browser and navigate to the local dev server (typically `http://localhost:5173`).
 
+## Deployment
+
+This project is set up to automatically deploy to GitHub Pages on every push to the `main` branch.
+
+**Live Demo:** https://informaticsmatters.github.io/observable-plot-scatter-poc/
+
+### Initial Setup (One-time)
+
+To enable GitHub Pages deployment, you need to configure your repository settings:
+
+1. Go to your GitHub repository
+2. Navigate to **Settings** → **Pages** (in the left sidebar)
+3. Under **Build and deployment**:
+   - **Source**: Select "GitHub Actions"
+4. That's it! The next push to `main` will trigger the deployment
+
+The workflow will:
+
+- Build the app using pnpm and Vite
+- Deploy the `dist` folder to GitHub Pages
+- Make your app available at `https://informaticsmatters.github.io/observable-plot-scatter-poc/`
+
+### Manual Deployment
+
+You can also trigger a deployment manually:
+
+1. Go to **Actions** tab in your repository
+2. Select the "Deploy to GitHub Pages" workflow
+3. Click "Run workflow"
+
 ## Usage
 
 ### Interactive Selection
